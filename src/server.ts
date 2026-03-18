@@ -13,6 +13,7 @@ import adminRoutes   from './routes/adminRoutes';
 import paymentRoutes from './routes/paymentRoutes';
 
 const app  = express();
+app.set("trust proxy", 1);
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
