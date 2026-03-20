@@ -20,7 +20,7 @@ export const getDashboard = async (_req: AuthRequest, res: Response): Promise<vo
       Booking.countDocuments({ status: { $ne: 'cancelled' } }),
       Booking.countDocuments({ date: today, status: { $ne: 'cancelled' } }),
       Booking.aggregate([
-        { $match: { status: { $ne: 'cancelled' } } },
+        { $match: { status: { $ne: 'cancelled' }, paymentStatus: 'paid' } },
         { $group: { _id: null, total: { $sum: '$totalAmount' } } },
       ]),
       User.countDocuments({ role: 'user' }),
@@ -112,6 +112,9 @@ export const updateBookingStatus = async (req: AuthRequest, res: Response): Prom
 };
 
 // ── GET /api/admin/users
+// ✅ Aggregates live booking counts from the Booking collection
+//    instead of trusting the stored counter on the User document
+//    (which could drift if payments were retried or refunded).
 export const getAllUsers = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const page   = parseInt((req.query.page  as string) || '1');
@@ -132,12 +135,62 @@ export const getAllUsers = async (req: AuthRequest, res: Response): Promise<void
       User.countDocuments(filter),
     ]);
 
+    if (users.length === 0) {
+      res.json({
+        success: true,
+        users: [],
+        pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      });
+      return;
+    }
+
+    // ── Aggregate REAL booking stats per user from the Booking collection
+    //    Only count confirmed/completed bookings with paid status
+    const userIds = users.map(u => u._id);
+
+    const bookingStats = await Booking.aggregate([
+      {
+        $match: {
+          userId:        { $in: userIds },
+          status:        { $in: ['confirmed', 'completed'] },
+          paymentStatus: 'paid',
+        },
+      },
+      {
+        $group: {
+          _id:          '$userId',
+          totalBookings: { $sum: 1 },
+          totalSpent:    { $sum: '$totalAmount' },
+        },
+      },
+    ]);
+
+    // Build a lookup map: userId string → { totalBookings, totalSpent }
+    const statsMap = new Map<string, { totalBookings: number; totalSpent: number }>();
+    for (const stat of bookingStats) {
+      statsMap.set(String(stat._id), {
+        totalBookings: stat.totalBookings,
+        totalSpent:    stat.totalSpent,
+      });
+    }
+
+    const usersWithStats = users.map(u => {
+      const pub   = u.toPublic();
+      const stats = statsMap.get(String(u._id)) ?? { totalBookings: 0, totalSpent: 0 };
+      return {
+        ...pub,
+        totalBookings: stats.totalBookings,
+        totalSpent:    stats.totalSpent,
+      };
+    });
+
     res.json({
       success: true,
-      users: users.map((u) => u.toPublic()),
+      users: usersWithStats,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (err) {
+    console.error('getAllUsers error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -184,8 +237,9 @@ export const getRevenue = async (req: AuthRequest, res: Response): Promise<void>
     const revenue = await Booking.aggregate([
       {
         $match: {
-          date:   { $regex: `^${month}` },
-          status: { $ne: 'cancelled' },
+          date:          { $regex: `^${month}` },
+          status:        { $ne: 'cancelled' },
+          paymentStatus: 'paid',
         },
       },
       {
