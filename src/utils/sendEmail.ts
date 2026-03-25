@@ -46,7 +46,7 @@ export const sendBookingConfirmation = async (p: BookingEmailParams): Promise<vo
         <p style="font-size:13px;color:#6b7280">📍 Housing Board, Sivakasi – 626 123<br>📞 +91 80565 64775</p>
       </div>
       <div style="background:#f9fafb;padding:14px;text-align:center;font-size:12px;color:#9ca3af">
-        © 2025 HyperGreen 360 Turf ·
+        © 2026 HyperGreen 360 Turf ·
         <a href="mailto:info@hypergreen360.com" style="color:#16a34a">info@hypergreen360.com</a>
       </div>
     </div>`;

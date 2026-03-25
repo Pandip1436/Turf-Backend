@@ -3,7 +3,7 @@ import { IBookingDocument } from '../types';
 
 const BookingSchema = new Schema<IBookingDocument>(
   {
-    userId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    userId:    { type: Schema.Types.ObjectId, ref: 'User', default: null },
     userName:  { type: String, required: true, trim: true },
     userEmail: { type: String, required: true, lowercase: true, trim: true },
     userPhone: {
@@ -11,12 +11,22 @@ const BookingSchema = new Schema<IBookingDocument>(
       match: [/^[0-9]{10}$/, 'Phone must be 10 digits'],
     },
     teamSize: { type: Number, min: 1, max: 30, default: null },
+
     sport: {
       type: String,
-      enum: ['football', 'cricket', 'both'],
+      enum: ['football', 'cricket', 'badminton', 'both'],
       default: 'football',
     },
-    date:       { type: String, required: true },
+
+    // ── Turf fields (added for multi-turf support) ────────────────────────
+    // turfId  — matches the id in TURFS[] on the frontend (e.g. 'thunder-arena')
+    // turfName — human-readable name stored for display in admin panel
+    // Conflict checks and slot availability are scoped per turfId so two different
+    // turfs can have the same time slot booked simultaneously.
+    turfId:   { type: String, default: null },
+    turfName: { type: String, default: null },
+
+    date:      { type: String, required: true },
     timeSlots: {
       type: [String], required: true,
       validate: {
@@ -63,11 +73,12 @@ const BookingSchema = new Schema<IBookingDocument>(
 );
 
 // ── Indexes
-BookingSchema.index({ date: 1, status: 1 });
+BookingSchema.index({ date: 1, turfId: 1, status: 1 }); // turf-scoped availability queries
 BookingSchema.index({ userId: 1, createdAt: -1 });
 BookingSchema.index({ userEmail: 1 });
+BookingSchema.index({ turfId: 1 });
 
-// ── Virtual: short reference like HG3F2A1B
+// ── Virtual: short booking reference e.g. HG3F2A1B
 BookingSchema.virtual('bookingRef').get(function (this: IBookingDocument) {
   return `HG${this._id.toString().slice(-6).toUpperCase()}`;
 });

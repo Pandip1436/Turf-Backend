@@ -50,7 +50,8 @@ export interface PublicUser {
   createdAt:     Date;
 }
 
-export type SportType     = 'football' | 'cricket' | 'both';
+// ── Sport / Booking types ─────────────────────────────────────────────────────
+export type SportType     = 'football' | 'cricket' | 'badminton' | 'both';
 export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no-show';
 export type PaymentStatus = 'pending' | 'paid' | 'refunded' | 'failed';
 export type PaymentMethod = 'upi' | 'card' | 'netbanking' | 'cash' | 'razorpay' | 'demo';
@@ -63,6 +64,14 @@ export interface IBooking {
   userPhone:          string;
   teamSize?:          number;
   sport:              SportType;
+
+  // Turf identity — each booking is scoped to one physical turf.
+  // turfId matches the id key in TURFS[] / TURF_PRICING on front + backend.
+  // Conflict checks and slot availability queries filter by turfId so
+  // two different turfs can share the same time slot independently.
+  turfId?:            string;   // e.g. 'thunder-arena', 'smash-court-a'
+  turfName?:          string;   // e.g. 'Thunder Arena', 'Smash Court A'
+
   date:               string;
   timeSlots:          string[];
   duration:           number;
@@ -89,6 +98,7 @@ export interface IBookingDocument extends IBooking, Document {
   updatedAt:  Date;
 }
 
+// ── Contact types ─────────────────────────────────────────────────────────────
 export type ContactStatus = 'new' | 'read' | 'replied' | 'closed';
 
 export interface IContact {
@@ -109,12 +119,13 @@ export interface IContactDocument extends IContact, Document {
   updatedAt: Date;
 }
 
+// ── Slot ──────────────────────────────────────────────────────────────────────
 export interface SlotInfo {
-  slot:      string;
-  from:      string;
-  to:        string;
+  slot:      string;  // full label e.g. "6:00 PM - 7:00 PM"
+  from:      string;  // "6:00 PM"
+  to:        string;  // "7:00 PM"
   isNight:   boolean;
-  price:     number;
+  price:     number;  // turf-specific price for this slot
   available: boolean;
   isYours:   boolean;
 }

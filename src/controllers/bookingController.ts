@@ -1,29 +1,31 @@
 import { Request, Response } from 'express';
 import { validationResult } from 'express-validator';
 import Booking from '../models/Booking';
-import User    from '../models/User';
 import { AuthRequest, SlotInfo } from '../types';
 import { getSlotPrice, calcPricing, buildSlotLabel } from '../utils/pricing';
 import { sendBookingConfirmation } from '../utils/sendEmail';
 
-// ── GET /api/bookings/slots?date=YYYY-MM-DD
+// ── GET /api/bookings/slots?date=YYYY-MM-DD&turfId=thunder-arena
+// Slots are scoped per turfId: each turf has independent availability.
+// Prices in the response reflect this turf's own day/night rates.
 export const getSlots = async (req: AuthRequest, res: Response): Promise<void> => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    res.status(400).json({ success: false, errors: errors.array() });
-    return;
-  }
+  if (!errors.isEmpty()) { res.status(400).json({ success: false, errors: errors.array() }); return; }
   try {
-    const { date } = req.query as { date: string };
+    const { date, turfId } = req.query as { date: string; turfId?: string };
 
-    const existing = await Booking.find({
+    // Filter existing bookings by date + turfId so each turf has its own grid.
+    // If no turfId is supplied (e.g. legacy call) we return global availability.
+    const bookingFilter: Record<string, unknown> = {
       date,
       status: { $in: ['pending', 'confirmed'] },
-    }).select('timeSlots userId');
+    };
+    if (turfId) bookingFilter.turfId = turfId;
 
-    const bookedSet   = new Set<string>();
-    const yourSet     = new Set<string>();
+    const existing = await Booking.find(bookingFilter).select('timeSlots userId');
 
+    const bookedSet = new Set<string>();
+    const yourSet   = new Set<string>();
     existing.forEach((b) => {
       b.timeSlots.forEach((s) => bookedSet.add(s));
       if (req.user && b.userId?.toString() === req.user._id.toString()) {
@@ -31,27 +33,27 @@ export const getSlots = async (req: AuthRequest, res: Response): Promise<void> =
       }
     });
 
-    // 6 AM → midnight, then midnight → 6 AM
+    // Build 24-slot grid: 6 AM → midnight, then midnight → 6 AM
     const hours = [
       ...Array.from({ length: 18 }, (_, i) => i + 6),
       ...Array.from({ length: 6 },  (_, i) => i),
     ];
 
     const slots: SlotInfo[] = hours.map((h) => {
-      const label = buildSlotLabel(h);
+      const label      = buildSlotLabel(h);
       const [from, to] = label.split(' - ');
       return {
         slot:      label,
         from,
         to,
         isNight:   h >= 18 || h < 6,
-        price:     getSlotPrice(label),
+        price:     getSlotPrice(label, turfId), // ← turf-specific pricing
         available: !bookedSet.has(label),
         isYours:   yourSet.has(label),
       };
     });
 
-    res.json({ success: true, date, slots });
+    res.json({ success: true, date, turfId: turfId ?? null, slots });
   } catch (err) {
     console.error('Slots error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -61,17 +63,16 @@ export const getSlots = async (req: AuthRequest, res: Response): Promise<void> =
 // ── POST /api/bookings
 export const createBooking = async (req: AuthRequest, res: Response): Promise<void> => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    res.status(400).json({ success: false, errors: errors.array() });
-    return;
-  }
+  if (!errors.isEmpty()) { res.status(400).json({ success: false, errors: errors.array() }); return; }
   try {
     const {
       userName, userEmail, userPhone, sport,
+      turfId, turfName,
       date, timeSlots, teamSize,
     } = req.body as {
       userName: string; userEmail: string; userPhone: string;
-      sport?: string;  date: string; timeSlots: string[]; teamSize?: number;
+      sport?: string; turfId?: string; turfName?: string;
+      date: string; timeSlots: string[]; teamSize?: number;
     };
 
     // Block past dates
@@ -81,12 +82,16 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Conflict check
-    const conflicts = await Booking.find({
+    // Conflict check — scoped to the same turfId.
+    // Two different turfs CAN have the same time slot booked simultaneously.
+    const conflictFilter: Record<string, unknown> = {
       date,
       timeSlots: { $in: timeSlots },
       status:    { $in: ['pending', 'confirmed'] },
-    });
+    };
+    if (turfId) conflictFilter.turfId = turfId;
+
+    const conflicts = await Booking.find(conflictFilter);
     if (conflicts.length > 0) {
       const taken = [...new Set(conflicts.flatMap((b) => b.timeSlots))];
       res.status(409).json({
@@ -97,8 +102,18 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const { baseAmount, discountAmount, totalAmount } = calcPricing(timeSlots);
-    const isNightSlot = timeSlots.some((s) => getSlotPrice(s) === 1000);
+    // Pricing — uses turfId to look up the correct rate from TURF_PRICING.
+    // Badminton courts get ₹300 flat; football/cricket get ₹600 day / ₹1000 night.
+    const { baseAmount, discountAmount, totalAmount } = calcPricing(timeSlots, turfId);
+
+    const isNightSlot = timeSlots.some((s) => {
+      const m = s.match(/^(\d+):00\s(AM|PM)/);
+      if (!m) return false;
+      let h = parseInt(m[1]);
+      if (m[2] === 'PM' && h !== 12) h += 12;
+      if (m[2] === 'AM' && h === 12) h = 0;
+      return h >= 18 || h < 6;
+    });
 
     const booking = await Booking.create({
       userId:         req.user?._id ?? null,
@@ -106,6 +121,8 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<vo
       userEmail,
       userPhone,
       sport:          sport ?? 'football',
+      turfId:         turfId  ?? null,
+      turfName:       turfName ?? null,
       date,
       timeSlots,
       duration:       timeSlots.length,
@@ -119,18 +136,17 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<vo
       paymentMethod:  'upi',
     });
 
-    if (req.user) {
-      await User.findByIdAndUpdate(req.user._id, {
-        $inc: { totalBookings: 1, totalSpent: totalAmount },
-      });
-    }
+    // NOTE: We do NOT increment User.totalBookings here.
+    // The admin panel reads live counts via aggregation (adminController.getAllUsers)
+    // so the stored counter is irrelevant. Incrementing it here caused double-counting
+    // when payments were retried.
 
-    // Non-blocking email
-    sendBookingConfirmation({
-      to: userEmail, name: userName,
-      bookingRef: booking.bookingRef,
-      date, slots: timeSlots, total: totalAmount,
-    }).catch((e: Error) => console.error('Email failed:', e.message));
+    // Non-blocking confirmation email
+    // sendBookingConfirmation({
+    //   to: userEmail, name: userName,
+    //   bookingRef: booking.bookingRef,
+    //   date, slots: timeSlots, total: totalAmount,
+    // }).catch((e: Error) => console.error('Email failed:', e.message));
 
     res.status(201).json({ success: true, message: 'Booking confirmed!', booking });
   } catch (err) {
@@ -164,18 +180,11 @@ export const getMyBookings = async (req: AuthRequest, res: Response): Promise<vo
 export const getBookingById = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      res.status(404).json({ success: false, message: 'Booking not found' });
-      return;
-    }
-    if (!req.user) {
-      res.status(401).json({ success: false, message: 'Authentication required' });
-      return;
-    }
+    if (!booking) { res.status(404).json({ success: false, message: 'Booking not found' }); return; }
+    if (!req.user) { res.status(401).json({ success: false, message: 'Authentication required' }); return; }
     const isOwner = booking.userId?.toString() === req.user._id.toString();
     if (!isOwner && req.user.role !== 'admin') {
-      res.status(403).json({ success: false, message: 'Access denied' });
-      return;
+      res.status(403).json({ success: false, message: 'Access denied' }); return;
     }
     res.json({ success: true, booking });
   } catch (err) {
@@ -187,18 +196,13 @@ export const getBookingById = async (req: AuthRequest, res: Response): Promise<v
 export const cancelBooking = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      res.status(404).json({ success: false, message: 'Booking not found' });
-      return;
-    }
+    if (!booking) { res.status(404).json({ success: false, message: 'Booking not found' }); return; }
     const isOwner = booking.userId?.toString() === req.user!._id.toString();
     if (!isOwner && req.user!.role !== 'admin') {
-      res.status(403).json({ success: false, message: 'Access denied' });
-      return;
+      res.status(403).json({ success: false, message: 'Access denied' }); return;
     }
     if (booking.status === 'cancelled') {
-      res.status(400).json({ success: false, message: 'Already cancelled' });
-      return;
+      res.status(400).json({ success: false, message: 'Already cancelled' }); return;
     }
 
     const bookingDate = new Date(`${booking.date}T00:00:00`);
@@ -213,11 +217,8 @@ export const cancelBooking = async (req: AuthRequest, res: Response): Promise<vo
     booking.refundStatus = refundAmt > 0 ? 'pending' : 'none';
     await booking.save();
 
-    if (booking.userId) {
-      await User.findByIdAndUpdate(booking.userId, {
-        $inc: { totalBookings: -1, totalSpent: -booking.totalAmount },
-      });
-    }
+    // NOTE: We do NOT decrement User.totalBookings here.
+    // Admin panel reads live counts via aggregation so the stored counter is unused.
 
     res.json({
       success: true,
@@ -233,25 +234,18 @@ export const cancelBooking = async (req: AuthRequest, res: Response): Promise<vo
 // ── PATCH /api/bookings/:id/payment
 export const updatePayment = async (req: AuthRequest, res: Response): Promise<void> => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    res.status(400).json({ success: false, errors: errors.array() });
-    return;
-  }
+  if (!errors.isEmpty()) { res.status(400).json({ success: false, errors: errors.array() }); return; }
   try {
     const booking = await Booking.findById(req.params.id);
-    if (!booking) {
-      res.status(404).json({ success: false, message: 'Booking not found' });
-      return;
-    }
+    if (!booking) { res.status(404).json({ success: false, message: 'Booking not found' }); return; }
     const { razorpayPaymentId, razorpayOrderId } = req.body as {
       razorpayPaymentId: string; razorpayOrderId: string;
     };
-    booking.paymentStatus      = 'paid';
-    booking.paymentMethod      = 'razorpay';
-    booking.razorpayPaymentId  = razorpayPaymentId;
-    booking.razorpayOrderId    = razorpayOrderId;
+    booking.paymentStatus     = 'paid';
+    booking.paymentMethod     = 'razorpay';
+    booking.razorpayPaymentId = razorpayPaymentId;
+    booking.razorpayOrderId   = razorpayOrderId;
     await booking.save();
-
     res.json({ success: true, message: 'Payment recorded', booking });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
