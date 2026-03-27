@@ -76,7 +76,8 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
-  "https://hypergreen360-turf360.pages.dev"
+  "https://hypergreen360-turf360.pages.dev",
+  "https://hypergreenturftown.pages.dev"
 ];
 
 app.use(
