@@ -5,7 +5,7 @@ export interface JwtPayload {
   id:    string;
   name:  string;
   email: string;
-  role:  'user' | 'admin';
+  role:  'user' | 'admin' | 'turf_manager';
   iat?:  number;
   exp?:  number;
 }
@@ -21,9 +21,10 @@ export interface IUser {
   password?:     string;
   googleId?:     string;
   avatar?:       string;
-  provider:      'local' | 'google';
-  role:          'user' | 'admin';
-  isVerified:    boolean;
+  provider:       'local' | 'google';
+  role:           'user' | 'admin' | 'turf_manager';
+  assignedTurfId?: string;
+  isVerified:     boolean;
   isActive:      boolean;
   totalBookings: number;
   totalSpent:    number;
@@ -42,10 +43,11 @@ export interface PublicUser {
   id:            Types.ObjectId;
   name:          string;
   email:         string;
-  phone?:        string;
-  avatar?:       string;
-  role:          string;
-  totalBookings: number;
+  phone?:         string;
+  avatar?:        string;
+  role:           string;
+  assignedTurfId?: string;
+  totalBookings:  number;
   totalSpent:    number;
   createdAt:     Date;
 }

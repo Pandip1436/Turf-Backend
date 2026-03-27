@@ -5,31 +5,32 @@ import Contact from '../models/Contact';
 import { AuthRequest, BookingStatus, ContactStatus } from '../types';
 
 // ── GET /api/admin/dashboard
-export const getDashboard = async (_req: AuthRequest, res: Response): Promise<void> => {
+export const getDashboard = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const today = new Date().toISOString().split('T')[0];
+    const isTurfManager = req.user?.role === 'turf_manager';
+    const turfScope = isTurfManager ? { turfId: req.user?.assignedTurfId } : {};
 
     const [
       totalBookings,
       todayBookings,
       revenueAgg,
-      totalUsers,
-      pendingContacts,
       recentBookings,
     ] = await Promise.all([
-      Booking.countDocuments({ status: { $ne: 'cancelled' } }),
-      Booking.countDocuments({ date: today, status: { $ne: 'cancelled' } }),
+      Booking.countDocuments({ ...turfScope, status: { $ne: 'cancelled' } }),
+      Booking.countDocuments({ ...turfScope, date: today, status: { $ne: 'cancelled' } }),
       Booking.aggregate([
-        { $match: { status: { $ne: 'cancelled' }, paymentStatus: 'paid' } },
+        { $match: { ...turfScope, status: { $ne: 'cancelled' }, paymentStatus: 'paid' } },
         { $group: { _id: null, total: { $sum: '$totalAmount' } } },
       ]),
-      User.countDocuments({ role: 'user' }),
-      Contact.countDocuments({ status: 'new' }),
-      Booking.find({ status: { $ne: 'cancelled' } })
+      Booking.find({ ...turfScope, status: { $ne: 'cancelled' } })
         .sort({ createdAt: -1 })
         .limit(5)
         .select('userName userEmail date timeSlots totalAmount status createdAt'),
     ]);
+
+    const totalUsers      = isTurfManager ? 0 : await User.countDocuments({ role: 'user' });
+    const pendingContacts = isTurfManager ? 0 : await Contact.countDocuments({ status: 'new' });
 
     res.json({
       success: true,
@@ -49,10 +50,13 @@ export const getDashboard = async (_req: AuthRequest, res: Response): Promise<vo
 };
 
 // ── GET /api/admin/bookings/turf-stats
-export const getTurfBookingStats = async (_req: AuthRequest, res: Response): Promise<void> => {
+export const getTurfBookingStats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const isTurfManager = req.user?.role === 'turf_manager';
+    const turfScope = isTurfManager ? { turfId: req.user?.assignedTurfId } : {};
+
     const stats = await Booking.aggregate([
-      { $match: { status: { $ne: 'cancelled' } } },
+      { $match: { ...turfScope, status: { $ne: 'cancelled' } } },
       { $group: { _id: '$turfId', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]);
@@ -77,6 +81,7 @@ export const getAllBookings = async (req: AuthRequest, res: Response): Promise<v
     if (status) filter.status = status;
     if (date)   filter.date   = date;
     if (turfId) filter.turfId = turfId;
+    if (req.user?.role === 'turf_manager') { filter.turfId = req.user.assignedTurfId; }
     if (search) {
       filter.$or = [
         { userName:  { $regex: search, $options: 'i' } },
@@ -112,15 +117,18 @@ export const updateBookingStatus = async (req: AuthRequest, res: Response): Prom
       return;
     }
 
-    const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
-      { status, ...(adminNotes && { adminNotes }) },
-      { new: true }
-    );
+    const booking = await Booking.findById(req.params.id);
     if (!booking) {
       res.status(404).json({ success: false, message: 'Booking not found' });
       return;
     }
+    if (req.user?.role === 'turf_manager' && booking.turfId !== req.user.assignedTurfId) {
+      res.status(403).json({ success: false, message: 'Access denied: not your branch booking' });
+      return;
+    }
+    booking.status = status;
+    if (adminNotes) booking.adminNotes = adminNotes;
+    await booking.save();
     res.json({ success: true, booking });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
@@ -249,10 +257,13 @@ export const updateContact = async (req: AuthRequest, res: Response): Promise<vo
 export const getRevenue = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const month = (req.query.month as string) || new Date().toISOString().slice(0, 7);
+    const isTurfManager = req.user?.role === 'turf_manager';
+    const turfScope = isTurfManager ? { turfId: req.user?.assignedTurfId } : {};
 
     const revenue = await Booking.aggregate([
       {
         $match: {
+          ...turfScope,
           date:          { $regex: `^${month}` },
           status:        { $ne: 'cancelled' },
           paymentStatus: 'paid',
@@ -273,7 +284,112 @@ export const getRevenue = async (req: AuthRequest, res: Response): Promise<void>
       0
     );
 
-    res.json({ success: true, month, revenue, totalRevenue });
+    res.json({
+      success: true, month, revenue, totalRevenue,
+      ...(isTurfManager && { turfId: req.user?.assignedTurfId }),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ── GET /api/admin/staff
+export const getStaffUsers = async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const staff = await User.find({ role: { $in: ['admin', 'turf_manager'] } })
+      .select('-password')
+      .sort({ createdAt: -1 });
+    res.json({ success: true, staff });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ── POST /api/admin/staff
+export const createStaffUser = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { name, email, password, role, assignedTurfId } = req.body as {
+      name: string; email: string; password: string;
+      role: 'admin' | 'turf_manager'; assignedTurfId?: string;
+    };
+
+    if (!name || !email || !password || !role) {
+      res.status(400).json({ success: false, message: 'name, email, password, and role are required' });
+      return;
+    }
+    if (!['admin', 'turf_manager'].includes(role)) {
+      res.status(400).json({ success: false, message: 'role must be admin or turf_manager' });
+      return;
+    }
+    if (role === 'turf_manager' && !assignedTurfId) {
+      res.status(400).json({ success: false, message: 'assignedTurfId is required for turf_manager' });
+      return;
+    }
+
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) {
+      res.status(409).json({ success: false, message: 'Email already registered' });
+      return;
+    }
+
+    const user = await User.create({
+      name, email, password, role,
+      assignedTurfId: role === 'turf_manager' ? assignedTurfId : undefined,
+      provider: 'local', isActive: true, isVerified: true,
+    });
+
+    res.status(201).json({ success: true, message: 'Staff user created', user: user.toPublic() });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ── PATCH /api/admin/staff/:id
+export const updateStaffUser = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user || !['admin', 'turf_manager'].includes(user.role)) {
+      res.status(404).json({ success: false, message: 'Staff user not found' });
+      return;
+    }
+    // Prevent self-demotion
+    if (String(user._id) === String(req.user?._id) && req.body.role && req.body.role !== 'admin') {
+      res.status(400).json({ success: false, message: 'Cannot change your own role' });
+      return;
+    }
+
+    const { name, role, assignedTurfId, isActive } = req.body as {
+      name?: string; role?: string; assignedTurfId?: string; isActive?: boolean;
+    };
+
+    if (name !== undefined)           user.name           = name;
+    if (isActive !== undefined)       user.isActive        = isActive;
+    if (role !== undefined && ['admin', 'turf_manager'].includes(role)) {
+      user.role = role as 'admin' | 'turf_manager';
+    }
+    if (assignedTurfId !== undefined) user.assignedTurfId = assignedTurfId || undefined;
+
+    await user.save();
+    res.json({ success: true, message: 'Staff user updated', user: user.toPublic() });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ── DELETE /api/admin/staff/:id
+export const deleteStaffUser = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (String(req.params.id) === String(req.user?._id)) {
+      res.status(400).json({ success: false, message: 'Cannot delete your own account' });
+      return;
+    }
+    const user = await User.findById(req.params.id);
+    if (!user || !['admin', 'turf_manager'].includes(user.role)) {
+      res.status(404).json({ success: false, message: 'Staff user not found' });
+      return;
+    }
+    await user.deleteOne();
+    res.json({ success: true, message: 'Staff user deleted' });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
   }

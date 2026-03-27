@@ -21,7 +21,8 @@ const UserSchema = new Schema<IUserDocument>(
     googleId:  { type: String, sparse: true },
     avatar:    { type: String },
     provider:  { type: String, enum: ['local', 'google'], default: 'local' },
-    role:      { type: String, enum: ['user', 'admin'],   default: 'user'  },
+    role:      { type: String, enum: ['user', 'admin', 'turf_manager'], default: 'user' },
+    assignedTurfId: { type: String, trim: true, lowercase: true },
     isVerified:    { type: Boolean, default: false },
     isActive:      { type: Boolean, default: true  },
     totalBookings: { type: Number,  default: 0     },
@@ -54,10 +55,11 @@ UserSchema.methods.toPublic = function (): PublicUser {
     email:         this.email,
     phone:         this.phone,
     avatar:        this.avatar,
-    role:          this.role,
-    totalBookings: this.totalBookings,
-    totalSpent:    this.totalSpent,
-    createdAt:     this.createdAt,
+    role:           this.role,
+    assignedTurfId: this.assignedTurfId,
+    totalBookings:  this.totalBookings,
+    totalSpent:     this.totalSpent,
+    createdAt:      this.createdAt,
   };
 };
 

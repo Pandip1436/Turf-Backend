@@ -8,8 +8,10 @@ import {
   createTournament,
   updateTournament,
   removeRegistration,
+  uploadTournamentBanner,
 } from '../controllers/tournamentController';
-import { authenticate, optionalAuth, requireAdmin } from '../middleware/auth';
+import { authenticate, requireAdminOrManager, optionalAuth } from '../middleware/auth';
+import { uploadTournament } from '../middleware/upload';
 
 const router = Router();
 
@@ -30,9 +32,10 @@ router.get('/:id',           optionalAuth, getTournamentById);
 // Authenticated
 router.post('/:id/register', optionalAuth, registerRules, registerTeam);
 
-// Admin only
-router.post('/',                              authenticate, requireAdmin, createTournament);
-router.patch('/:id',                          authenticate, requireAdmin, updateTournament);
-router.delete('/:id/registrations/:regId',    authenticate, requireAdmin, removeRegistration);
+// Admin or Branch Manager
+router.post('/upload',                        authenticate, requireAdminOrManager, uploadTournament.single('image'), uploadTournamentBanner);
+router.post('/',                              authenticate, requireAdminOrManager, createTournament);
+router.patch('/:id',                          authenticate, requireAdminOrManager, updateTournament);
+router.delete('/:id/registrations/:regId',    authenticate, requireAdminOrManager, removeRegistration);
 
 export default router;

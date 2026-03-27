@@ -1,6 +1,17 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import Tournament from '../models/Tournament';
 import { AuthRequest } from '../types';
+
+// ── POST /api/tournaments/upload  (admin / turf_manager)
+export const uploadTournamentBanner = (req: Request, res: Response): void => {
+  if (!req.file) {
+    res.status(400).json({ success: false, message: 'No file uploaded' });
+    return;
+  }
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const url = `${baseUrl}/uploads/tournaments/${req.file.filename}`;
+  res.json({ success: true, url });
+};
 
 // ── GET /api/tournaments — list all (with optional filters)
 export const getTournaments = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -164,10 +175,15 @@ export const getMyRegistrations = async (req: AuthRequest, res: Response): Promi
   }
 };
 
-// ── Admin: POST /api/tournaments — create tournament
+// ── Admin/Manager: POST /api/tournaments — create tournament
 export const createTournament = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const t = await Tournament.create(req.body);
+    const body = { ...req.body };
+    // Turf managers can only create tournaments for their assigned turf
+    if (req.user?.role === 'turf_manager') {
+      body.turfId = req.user.assignedTurfId;
+    }
+    const t = await Tournament.create(body);
     res.status(201).json({ success: true, tournament: t });
   } catch (err) {
     console.error('Create tournament error:', err);
@@ -175,22 +191,40 @@ export const createTournament = async (req: AuthRequest, res: Response): Promise
   }
 };
 
-// ── Admin: PATCH /api/tournaments/:id — update tournament
+// ── Admin/Manager: PATCH /api/tournaments/:id — update tournament
 export const updateTournament = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const t = await Tournament.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const t = await Tournament.findById(req.params.id);
     if (!t) { res.status(404).json({ success: false, message: 'Tournament not found' }); return; }
-    res.json({ success: true, tournament: t });
+
+    // Turf managers can only update tournaments for their assigned turf
+    if (req.user?.role === 'turf_manager' && t.turfId !== req.user.assignedTurfId) {
+      res.status(403).json({ success: false, message: 'Access denied — not your branch tournament' });
+      return;
+    }
+
+    const body = { ...req.body };
+    // Prevent managers from changing the turfId
+    if (req.user?.role === 'turf_manager') delete body.turfId;
+
+    const updated = await Tournament.findByIdAndUpdate(req.params.id, body, { new: true });
+    res.json({ success: true, tournament: updated });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
-// ── Admin: DELETE /api/tournaments/:id/registrations/:regId — remove a team
+// ── Admin/Manager: DELETE /api/tournaments/:id/registrations/:regId — remove a team
 export const removeRegistration = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const tournament = await Tournament.findById(req.params.id);
     if (!tournament) { res.status(404).json({ success: false, message: 'Tournament not found' }); return; }
+
+    if (req.user?.role === 'turf_manager' && tournament.turfId !== req.user.assignedTurfId) {
+      res.status(403).json({ success: false, message: 'Access denied — not your branch tournament' });
+      return;
+    }
+
     tournament.registrations = tournament.registrations.filter(
       r => r._id?.toString() !== req.params.regId
     ) as typeof tournament.registrations;

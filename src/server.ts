@@ -107,17 +107,31 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// ── Global rate limiter (100 req / 15 min per IP)
-app.use('/api/', rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many requests. Try again later.' },
-}));
+// ── Global rate limiter (100 req / 15 min per IP) — skipped for admin in dev
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/', rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many requests. Try again later.' },
+  }));
+} else {
+  // In development: relaxed limit so Strict Mode double-invokes don't trigger 429
+  app.use('/api/', rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many requests. Try again later.' },
+  }));
+}
 
-// ── Static uploads
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// ── Static uploads (allow cross-origin so the frontend can load images)
+app.use('/uploads', (_req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(path.join(__dirname, '../uploads')));
 
 // ── Routes
 app.use('/api/auth',       authRoutes);

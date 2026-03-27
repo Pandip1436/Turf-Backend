@@ -68,3 +68,16 @@ export const requireAdmin = (
   }
   next();
 };
+
+// ── Admin or Turf Manager guard
+export const requireAdminOrManager = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): void => {
+  if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'turf_manager')) {
+    res.status(403).json({ success: false, message: 'Access denied' });
+    return;
+  }
+  next();
+};
