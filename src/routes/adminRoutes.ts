@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getDashboard,
   getAllBookings,
+  getTurfBookingStats,
   updateBookingStatus,
   getAllUsers,
   getAllContacts,
@@ -16,6 +17,7 @@ const router = Router();
 router.use(authenticate, requireAdmin);
 
 router.get   ('/dashboard',           getDashboard);
+router.get   ('/bookings/turf-stats', getTurfBookingStats);
 router.get   ('/bookings',            getAllBookings);
 router.patch ('/bookings/:id/status', updateBookingStatus);
 router.get   ('/users',               getAllUsers);

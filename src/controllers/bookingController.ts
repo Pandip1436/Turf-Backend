@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { validationResult } from 'express-validator';
 import Booking from '../models/Booking';
+import Turf from '../models/Turf';
 import { AuthRequest, SlotInfo } from '../types';
 import { getSlotPrice, calcPricing, buildSlotLabel } from '../utils/pricing';
 import { sendBookingConfirmation } from '../utils/sendEmail';
@@ -13,6 +14,13 @@ export const getSlots = async (req: AuthRequest, res: Response): Promise<void> =
   if (!errors.isEmpty()) { res.status(400).json({ success: false, errors: errors.array() }); return; }
   try {
     const { date, turfId } = req.query as { date: string; turfId?: string };
+
+    // Look up turf from DB for dynamic pricing (falls back to static map if not found)
+    let pricingOverride: { day: number; night: number } | undefined;
+    if (turfId) {
+      const turfDoc = await Turf.findOne({ turfId }).select('priceDay priceNight');
+      if (turfDoc) pricingOverride = { day: turfDoc.priceDay, night: turfDoc.priceNight };
+    }
 
     // Filter existing bookings by date + turfId so each turf has its own grid.
     // If no turfId is supplied (e.g. legacy call) we return global availability.
@@ -47,7 +55,7 @@ export const getSlots = async (req: AuthRequest, res: Response): Promise<void> =
         from,
         to,
         isNight:   h >= 18 || h < 6,
-        price:     getSlotPrice(label, turfId), // ← turf-specific pricing
+        price:     getSlotPrice(label, turfId, pricingOverride),
         available: !bookedSet.has(label),
         isYours:   yourSet.has(label),
       };
@@ -102,9 +110,13 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Pricing — uses turfId to look up the correct rate from TURF_PRICING.
-    // Badminton courts get ₹300 flat; football/cricket get ₹600 day / ₹1000 night.
-    const { baseAmount, discountAmount, totalAmount } = calcPricing(timeSlots, turfId);
+    // Pricing — look up turf from DB for dynamic rates; fall back to static map.
+    let bookingPricingOverride: { day: number; night: number } | undefined;
+    if (turfId) {
+      const turfDoc = await Turf.findOne({ turfId }).select('priceDay priceNight');
+      if (turfDoc) bookingPricingOverride = { day: turfDoc.priceDay, night: turfDoc.priceNight };
+    }
+    const { baseAmount, discountAmount, totalAmount } = calcPricing(timeSlots, turfId, bookingPricingOverride);
 
     const isNightSlot = timeSlots.some((s) => {
       const m = s.match(/^(\d+):00\s(AM|PM)/);

@@ -4,13 +4,17 @@ import mongoose from 'mongoose';
 import cors     from 'cors';
 import helmet   from 'helmet';
 import morgan   from 'morgan';
+import path     from 'path';
 import { rateLimit } from 'express-rate-limit';
 
-import authRoutes    from './routes/authRoutes';
-import bookingRoutes from './routes/bookingRoutes';
-import contactRoutes from './routes/contactRoutes';
-import adminRoutes   from './routes/adminRoutes';
-import paymentRoutes from './routes/paymentRoutes';
+import authRoutes       from './routes/authRoutes';
+import bookingRoutes    from './routes/bookingRoutes';
+import contactRoutes    from './routes/contactRoutes';
+import adminRoutes      from './routes/adminRoutes';
+import tournamentRoutes from './routes/tournamentroutes';
+import paymentRoutes    from './routes/paymentRoutes';
+import turfRoutes       from './routes/turfRoutes';
+
 
 const app  = express();
 app.set("trust proxy", 1);
@@ -111,12 +115,17 @@ app.use('/api/', rateLimit({
   message: { success: false, message: 'Too many requests. Try again later.' },
 }));
 
+// ── Static uploads
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // ── Routes
-app.use('/api/auth',     authRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/contact',  contactRoutes);
-app.use('/api/admin',    adminRoutes);
-app.use('/api/payments', paymentRoutes);
+app.use('/api/auth',       authRoutes);
+app.use('/api/bookings',   bookingRoutes);
+app.use('/api/contact',    contactRoutes);
+app.use('/api/admin',      adminRoutes);
+app.use('/api/payments',   paymentRoutes);
+app.use('/api/tournaments', tournamentRoutes);
+app.use('/api/turfs',      turfRoutes);
 
 // ── Health check
 app.get('/api/health', (_req: Request, res: Response) => {

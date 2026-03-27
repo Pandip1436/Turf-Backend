@@ -25,8 +25,10 @@ const TURF_PRICING: Record<string, TurfPricing> = {
 // Fallback when no turfId supplied (legacy / global calls)
 const DEFAULT_PRICING: TurfPricing = { day: 600, night: 1000 };
 
-/** Returns the pricing config for a turfId, falling back to default. */
-export function getTurfPricing(turfId?: string): TurfPricing {
+/** Returns the pricing config for a turfId, falling back to default.
+ *  Pass `override` to skip the static map (e.g. when pricing comes from DB). */
+export function getTurfPricing(turfId?: string, override?: TurfPricing): TurfPricing {
+  if (override) return override;
   if (turfId && TURF_PRICING[turfId]) return TURF_PRICING[turfId];
   return DEFAULT_PRICING;
 }
@@ -42,8 +44,8 @@ function isNightHour(h: number): boolean {
  * @param slotLabel - e.g. "6:00 PM - 7:00 PM"
  * @param turfId    - e.g. "thunder-arena" (optional — falls back to DEFAULT_PRICING)
  */
-export function getSlotPrice(slotLabel: string, turfId?: string): number {
-  const pricing = getTurfPricing(turfId);
+export function getSlotPrice(slotLabel: string, turfId?: string, override?: TurfPricing): number {
+  const pricing = getTurfPricing(turfId, override);
   // Flat-rate turfs (badminton): same price regardless of time of day
   if (pricing.day === pricing.night) return pricing.day;
 
@@ -65,8 +67,9 @@ export function getSlotPrice(slotLabel: string, turfId?: string): number {
 export function calcPricing(
   slots: string[],
   turfId?: string,
+  pricingOverride?: TurfPricing,
 ): { baseAmount: number; discountAmount: number; totalAmount: number } {
-  const base  = slots.reduce((sum, slot) => sum + getSlotPrice(slot, turfId), 0);
+  const base  = slots.reduce((sum, slot) => sum + getSlotPrice(slot, turfId, pricingOverride), 0);
   const count = slots.length;
   const pct   = count === 2 ? 10 : count >= 3 ? 20 : 0;
   const disc  = Math.round(base * pct / 100);

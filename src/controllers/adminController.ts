@@ -48,6 +48,20 @@ export const getDashboard = async (_req: AuthRequest, res: Response): Promise<vo
   }
 };
 
+// ── GET /api/admin/bookings/turf-stats
+export const getTurfBookingStats = async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const stats = await Booking.aggregate([
+      { $match: { status: { $ne: 'cancelled' } } },
+      { $group: { _id: '$turfId', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+    res.json({ success: true, stats });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 // ── GET /api/admin/bookings
 export const getAllBookings = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -57,10 +71,12 @@ export const getAllBookings = async (req: AuthRequest, res: Response): Promise<v
     const status = req.query.status as string | undefined;
     const date   = req.query.date   as string | undefined;
     const search = req.query.search as string | undefined;
+    const turfId = req.query.turfId as string | undefined;
 
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
     if (date)   filter.date   = date;
+    if (turfId) filter.turfId = turfId;
     if (search) {
       filter.$or = [
         { userName:  { $regex: search, $options: 'i' } },
