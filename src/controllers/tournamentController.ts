@@ -8,8 +8,8 @@ export const uploadTournamentBanner = (req: Request, res: Response): void => {
     res.status(400).json({ success: false, message: 'No file uploaded' });
     return;
   }
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  const url = `${baseUrl}/uploads/tournaments/${req.file.filename}`;
+  // Cloudinary returns the URL in req.file.path
+  const url = (req.file as Express.Multer.File & { path: string }).path;
   res.json({ success: true, url });
 };
 
