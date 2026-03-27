@@ -94,6 +94,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"]
   })
 );
+app.options('*', cors());
 
 // ── Body parsers
 // Raw body needed for Razorpay webhook signature verification
