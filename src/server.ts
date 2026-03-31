@@ -14,6 +14,7 @@ import adminRoutes      from './routes/adminRoutes';
 import tournamentRoutes from './routes/tournamentroutes';
 import paymentRoutes    from './routes/paymentRoutes';
 import turfRoutes       from './routes/turfRoutes';
+import galleryRoutes    from './routes/galleryRoutes';
 
 
 const app  = express();
@@ -108,11 +109,11 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// ── Global rate limiter (100 req / 15 min per IP) — skipped for admin in dev
+// ── Global rate limiter — relaxed for production, generous for dev
 if (process.env.NODE_ENV === 'production') {
   app.use('/api/', rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, message: 'Too many requests. Try again later.' },
@@ -142,6 +143,7 @@ app.use('/api/admin',      adminRoutes);
 app.use('/api/payments',   paymentRoutes);
 app.use('/api/tournaments', tournamentRoutes);
 app.use('/api/turfs',      turfRoutes);
+app.use('/api/gallery',    galleryRoutes);
 
 // ── Health check
 app.get('/api/health', (_req: Request, res: Response) => {

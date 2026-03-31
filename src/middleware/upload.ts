@@ -22,6 +22,7 @@ function makeCloudinaryStorage(folder: string) {
 const upload = multer({ storage: makeCloudinaryStorage('hypergreen360/turfs') });
 
 export const uploadTournament = multer({ storage: makeCloudinaryStorage('hypergreen360/tournaments') });
+export const uploadGallery = multer({ storage: makeCloudinaryStorage('hypergreen360/gallery') });
 
 export { cloudinary };
 export default upload;
