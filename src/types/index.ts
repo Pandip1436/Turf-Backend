@@ -54,7 +54,7 @@ export interface PublicUser {
 
 // ── Sport / Booking types ─────────────────────────────────────────────────────
 export type SportType     = 'football' | 'cricket' | 'badminton' | 'both';
-export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no-show';
+export type BookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no-show' | 'reserved';
 export type PaymentStatus = 'pending' | 'paid' | 'refunded' | 'failed';
 export type PaymentMethod = 'upi' | 'card' | 'netbanking' | 'cash' | 'razorpay' | 'demo';
 export type RefundStatus  = 'none' | 'pending' | 'processed';
@@ -86,6 +86,7 @@ export interface IBooking {
   paymentMethod:      PaymentMethod;
   razorpayOrderId?:   string;
   razorpayPaymentId?: string;
+  reservedUntil?:     Date;
   cancelledAt?:       Date;
   cancelReason?:      string;
   refundAmount:       number;

@@ -22,11 +22,21 @@ export const getSlots = async (req: AuthRequest, res: Response): Promise<void> =
       if (turfDoc) pricingOverride = { day: turfDoc.priceDay, night: turfDoc.priceNight };
     }
 
+    // Clean up expired reservations before checking availability
+    await Booking.updateMany(
+      { status: 'reserved', reservedUntil: { $lte: new Date() } },
+      { $set: { status: 'cancelled', cancelReason: 'Reservation expired (30 min timeout)' } }
+    );
+
     // Filter existing bookings by date + turfId so each turf has its own grid.
-    // If no turfId is supplied (e.g. legacy call) we return global availability.
+    // Include active reservations (not expired) as unavailable.
+    const now = new Date();
     const bookingFilter: Record<string, unknown> = {
       date,
-      status: { $in: ['pending', 'confirmed'] },
+      $or: [
+        { status: { $in: ['pending', 'confirmed'] } },
+        { status: 'reserved', reservedUntil: { $gt: now } },
+      ],
     };
     if (turfId) bookingFilter.turfId = turfId;
 
@@ -164,6 +174,110 @@ export const createBooking = async (req: AuthRequest, res: Response): Promise<vo
   } catch (err) {
     console.error('Create booking error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ── POST /api/bookings/reserve  — Reserve slots for 30 mins without payment
+export const reserveBooking = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const {
+      userName, userEmail, userPhone, sport,
+      turfId, turfName, date, timeSlots, teamSize,
+    } = req.body as {
+      userName: string; userEmail: string; userPhone: string;
+      sport?: string; turfId?: string; turfName?: string;
+      date: string; timeSlots: string[]; teamSize?: number;
+    };
+
+    const today = new Date().toISOString().split('T')[0];
+    if (date < today) {
+      res.status(400).json({ success: false, message: 'Cannot reserve for past dates' });
+      return;
+    }
+
+    // Conflict check — include reserved (not expired) bookings
+    const now = new Date();
+    const conflictFilter: Record<string, unknown> = {
+      date,
+      timeSlots: { $in: timeSlots },
+      $or: [
+        { status: { $in: ['pending', 'confirmed'] } },
+        { status: 'reserved', reservedUntil: { $gt: now } },
+      ],
+    };
+    if (turfId) conflictFilter.turfId = turfId;
+
+    const conflicts = await Booking.find(conflictFilter);
+    if (conflicts.length > 0) {
+      const taken = [...new Set(conflicts.flatMap((b) => b.timeSlots))];
+      res.status(409).json({
+        success: false,
+        message: `Slots already booked: ${taken.join(', ')}`,
+        takenSlots: taken,
+      });
+      return;
+    }
+
+    // Pricing
+    let pricingOverride: { day: number; night: number } | undefined;
+    if (turfId) {
+      const turfDoc = await Turf.findOne({ turfId }).select('priceDay priceNight');
+      if (turfDoc) pricingOverride = { day: turfDoc.priceDay, night: turfDoc.priceNight };
+    }
+    const { baseAmount, discountAmount, totalAmount } = calcPricing(timeSlots, turfId, pricingOverride);
+
+    const isNightSlot = timeSlots.some((s) => {
+      const m = s.match(/^(\d+):00\s(AM|PM)/);
+      if (!m) return false;
+      let h = parseInt(m[1]);
+      if (m[2] === 'PM' && h !== 12) h += 12;
+      if (m[2] === 'AM' && h === 12) h = 0;
+      return h >= 18 || h < 6;
+    });
+
+    const reservedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+    const booking = await Booking.create({
+      userId:         req.user?._id ?? null,
+      userName, userEmail, userPhone,
+      sport:          sport ?? 'football',
+      turfId:         turfId ?? null,
+      turfName:       turfName ?? null,
+      date, timeSlots,
+      duration:       timeSlots.length,
+      isNightSlot,
+      teamSize:       teamSize ?? null,
+      baseAmount, discountAmount, totalAmount,
+      status:         'reserved',
+      paymentStatus:  'pending',
+      paymentMethod:  'upi',
+      reservedUntil,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Slots reserved for 30 minutes. Complete payment to confirm.',
+      booking,
+      reservedUntil: reservedUntil.toISOString(),
+    });
+  } catch (err) {
+    console.error('Reserve booking error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ── Auto-cancel expired reservations (called periodically or on slot queries)
+export const cleanupExpiredReservations = async () => {
+  try {
+    const result = await Booking.updateMany(
+      { status: 'reserved', reservedUntil: { $lte: new Date() } },
+      { $set: { status: 'cancelled', cancelReason: 'Reservation expired (30 min timeout)' } }
+    );
+    if (result.modifiedCount > 0) {
+      console.log(`[Cleanup] Auto-cancelled ${result.modifiedCount} expired reservation(s)`);
+    }
+  } catch (err) {
+    console.error('Reservation cleanup error:', err);
   }
 };
 

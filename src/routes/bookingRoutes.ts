@@ -3,6 +3,7 @@ import { body, query } from 'express-validator';
 import {
   getSlots,
   createBooking,
+  reserveBooking,
   getMyBookings,
   getBookingById,
   cancelBooking,
@@ -44,6 +45,9 @@ router.get('/slots', optionalAuth, slotQueryRules, getSlots);
 
 // Create booking — optionalAuth allows guest bookings; userId stored if logged in
 router.post('/', optionalAuth, createRules, createBooking);
+
+// Reserve slots for 30 mins without payment
+router.post('/reserve', optionalAuth, createRules, reserveBooking);
 
 // User's own bookings — requires auth
 router.get('/my', authenticate, getMyBookings);

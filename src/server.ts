@@ -145,6 +145,10 @@ app.use('/api/tournaments', tournamentRoutes);
 app.use('/api/turfs',      turfRoutes);
 app.use('/api/gallery',    galleryRoutes);
 
+// ── Auto-cancel expired reservations every 5 minutes
+import { cleanupExpiredReservations } from './controllers/bookingController';
+setInterval(cleanupExpiredReservations, 5 * 60 * 1000);
+
 // ── Health check
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({

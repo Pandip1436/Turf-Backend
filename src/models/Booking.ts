@@ -43,7 +43,7 @@ const BookingSchema = new Schema<IBookingDocument>(
 
     status: {
       type: String,
-      enum: ['pending', 'confirmed', 'cancelled', 'completed', 'no-show'],
+      enum: ['pending', 'confirmed', 'cancelled', 'completed', 'no-show', 'reserved'],
       default: 'pending',
     },
     paymentStatus: {
@@ -58,6 +58,8 @@ const BookingSchema = new Schema<IBookingDocument>(
     },
     razorpayOrderId:   { type: String },
     razorpayPaymentId: { type: String },
+
+    reservedUntil: { type: Date, default: null },
 
     cancelledAt:  { type: Date },
     cancelReason: { type: String },
