@@ -88,7 +88,7 @@ const corsOptions: cors.CorsOptions = {
       callback(null, true);
     } else {
       console.warn(`CORS blocked: ${origin}`);
-      callback(null, false);
+      callback(new Error("Not allowed by CORS"));
     }
   },
   credentials: true,
