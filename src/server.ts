@@ -78,7 +78,8 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "https://hypergreen360-turf360.pages.dev",
-  "https://hypergreenturftown.pages.dev"
+  "https://hypergreenturftown.pages.dev",
+  "https://d22wav2grz4i6q.cloudfront.net"
 ];
 
 const corsOptions: cors.CorsOptions = {
