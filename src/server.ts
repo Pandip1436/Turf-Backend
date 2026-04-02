@@ -85,7 +85,7 @@ const allowedOrigins = [
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
+      callback(null, origin);
     } else {
       console.warn(`CORS blocked: ${origin}`);
       callback(new Error("Not allowed by CORS"));
