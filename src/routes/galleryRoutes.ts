@@ -7,7 +7,7 @@ import {
   uploadGalleryImage,
 } from '../controllers/galleryController';
 import { authenticate, requireAdminOrManager } from '../middleware/auth';
-import { uploadGallery } from '../middleware/upload';
+import { uploadGallerySingle } from '../middleware/upload';
 
 const router = Router();
 
@@ -15,7 +15,7 @@ const router = Router();
 router.get('/', getGalleryImages);
 
 // Admin + Branch Manager
-router.post  ('/upload', authenticate, requireAdminOrManager, uploadGallery.single('image'), uploadGalleryImage);
+router.post  ('/upload', authenticate, requireAdminOrManager, uploadGallerySingle, uploadGalleryImage);
 router.post  ('/',       authenticate, requireAdminOrManager, createGalleryImage);
 router.put   ('/:id',    authenticate, requireAdminOrManager, updateGalleryImage);
 router.delete('/:id',    authenticate, requireAdminOrManager, deleteGalleryImage);
