@@ -77,9 +77,19 @@ export const getAllBookings = async (req: AuthRequest, res: Response): Promise<v
     const search = req.query.search as string | undefined;
     const turfId = req.query.turfId as string | undefined;
 
+    const dateFrom = req.query.dateFrom as string | undefined;
+    const dateTo   = req.query.dateTo   as string | undefined;
+
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
-    if (date)   filter.date   = date;
+    if (date) {
+      filter.date = date;
+    } else if (dateFrom || dateTo) {
+      const range: Record<string, string> = {};
+      if (dateFrom) range.$gte = dateFrom;
+      if (dateTo)   range.$lte = dateTo;
+      filter.date = range;
+    }
     if (turfId) filter.turfId = turfId;
     if (req.user?.role === 'turf_manager') { filter.turfId = req.user.assignedTurfId; }
     if (search) {
